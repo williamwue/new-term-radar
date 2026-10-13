@@ -5,6 +5,8 @@ import re
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
+import pytest
+
 from radar import __main__ as cli
 from radar import breakout, config, gsc, i18n, judge, new_sites, notify, report, review, sitemaps, snap, sources, store
 from radar.sources import base_name, novel_names
@@ -165,6 +167,84 @@ def test_an_empty_posts_file_keeps_the_vocabulary(tmp_path):
     out = sources.x_new(_x_cfg(tmp_path), tmp_path)
     assert out["posts"] == 0 and out["terms"] == []
     assert snap.load(tmp_path / "x_vocab.json.gz") == {"strata": "2026-10-01"}
+
+
+def test_a_malformed_posts_file_keeps_the_vocabulary(tmp_path):
+    snap.save(tmp_path / "x_vocab.json.gz", {"strata": "2026-10-01"})
+    (tmp_path / "posts.json").write_text("{", encoding="utf-8")
+    with pytest.raises(json.JSONDecodeError):
+        sources.x_new(_x_cfg(tmp_path), tmp_path)
+    assert snap.load(tmp_path / "x_vocab.json.gz") == {"strata": "2026-10-01"}
+
+    (tmp_path / "posts.json").write_text("null", encoding="utf-8")
+    with pytest.raises(ValueError):
+        sources.x_new(_x_cfg(tmp_path), tmp_path)
+    assert snap.load(tmp_path / "x_vocab.json.gz") == {"strata": "2026-10-01"}
+
+
+def test_posts_file_uses_the_likes_rule_and_the_sixty_day_vocabulary(tmp_path):
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    recent = (now - timedelta(hours=1)).isoformat()
+
+    def run(payload, vocab):
+        _posts_file(tmp_path, payload)
+        snap.save(tmp_path / "x_vocab.json.gz", vocab)
+        return sources.x_new(_x_cfg(tmp_path, handles=("a", "b")), tmp_path)
+
+    low = run([{"account": "a", "text": "Qwen3.9 is fast", "likes": 99, "created": recent}], {})
+    assert low["terms"] == []
+    strong = run([{"account": "a", "text": "Qwen3.9 is fast", "likes": 100, "created": recent}], {})
+    assert [r["term"] for r in strong["terms"]] == ["qwen3.9"]
+    plain = run([{"account": "a", "text": "Strata is fast", "likes": 500, "created": recent}], {})
+    assert plain["terms"] == []
+
+    known = run([
+        {"account": "a", "text": "Strata is fast", "likes": 1, "created": recent},
+        {"account": "b", "text": "Tried Strata today", "likes": 1, "created": recent},
+    ], {"strata": (date.today() - timedelta(days=59)).isoformat()})
+    assert known["terms"] == []
+    assert snap.load(tmp_path / "x_vocab.json.gz")["strata"] == date.today().isoformat()
+
+    expired = (date.today() - timedelta(days=sources.VOCAB_DAYS + 1)).isoformat()
+    run([{"account": "a", "text": "Hello from the lab", "likes": 1, "created": recent}],
+        {"strata": expired, "kept": date.today().isoformat()})
+    vocab = snap.load(tmp_path / "x_vocab.json.gz")
+    assert "strata" not in vocab and vocab["kept"] == date.today().isoformat()
+
+
+def test_without_a_posts_file_aisa_behaviour_is_unchanged(tmp_path, monkeypatch):
+    created = datetime.now(timezone.utc).strftime("%a %b %d %H:%M:%S %z %Y")
+    seen = {}
+
+    def fake(calls):
+        seen["calls"] = calls
+        return ({
+            "@Lab": {"data": {"tweets": [
+                {"text": "Strata is fast", "likeCount": 3, "id": "99",
+                 "public_metrics": {"like_count": 999}, "createdAt": created},
+                {"text": "Qwen3.9 is fast", "id": "100",
+                 "public_metrics": {"like_count": 500}, "createdAt": created},
+            ]}},
+            "blog": {"data": {"tweets": [
+                {"text": "Tried Strata today", "likeCount": 1, "url": "https://x.com/blog/status/2",
+                 "createdAt": created},
+            ]}},
+        }, 6000)
+
+    monkeypatch.setattr(sources.aisa, "call_all", fake)
+    snap.save(tmp_path / "x_vocab.json.gz", {"already": "2026-10-01"})
+    out = sources.x_new({"_dir": tmp_path, "x_accounts": {"labs": ["@Lab"], "bloggers": ["blog"]}}, tmp_path)
+    assert seen["calls"] == [
+        {"call_id": "@Lab", "tool": "get_twitter_user_last_tweets", "arguments": {"userName": "@Lab"}},
+        {"call_id": "blog", "tool": "get_twitter_user_last_tweets", "arguments": {"userName": "blog"}},
+    ]
+    assert "posts_file" not in out
+    assert out["cost_micros"] == 6000 and out["accounts"] == 2 and out["answered"] == 2 and out["posts"] == 3
+    assert [r["term"] for r in out["terms"]] == ["strata"]
+    assert out["terms"][0]["sources"] == ["@Lab", "blog"] and out["terms"][0]["likes"] == 4
+    assert out["terms"][0]["posts"][0]["url"] == ""
+    vocab = snap.load(tmp_path / "x_vocab.json.gz")
+    assert "strata" in vocab and "qwen3.9" in vocab and vocab["already"] == "2026-10-01"
 
 
 # --- ① HF: copies of one model group under its base name -----------------------------
@@ -467,6 +547,19 @@ def test_daily_report_says_the_x_posts_came_from_a_file(tmp_path, monkeypatch):
     # The name is in the vocabulary now, so it is not a lead again. The line under
     # recent sources is the copy kept from the first run.
     assert "| **strata** |" not in second and "读自 posts.json" in second
+
+
+def test_a_missing_posts_file_is_an_error_and_keeps_the_vocabulary(tmp_path, monkeypatch):
+    def fail(*a, **k):
+        raise AssertionError("AIsa was called")
+    monkeypatch.setattr(sources.aisa, "call_all", fail)
+    state = tmp_path / "state"
+    snap.save(state / "x_vocab.json.gz", {"strata": "2026-10-01"})
+    out = tmp_path / "sources.md"
+    code = cli.main(["sources", "--config", str(_write_config(tmp_path, x_accounts={"labs": ["a"], "posts_file": "missing.json"})),
+                     "--state", str(state), "--out", str(out), "--skip", "hf"])
+    assert code == 0 and "FileNotFoundError" in out.read_text()
+    assert snap.load(state / "x_vocab.json.gz") == {"strata": "2026-10-01"}
 
 
 def test_sources_run_writes_no_report_when_nothing_is_new(tmp_path, monkeypatch):

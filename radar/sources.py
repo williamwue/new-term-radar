@@ -77,7 +77,7 @@ def _likes(post: dict) -> int:
 
 def _as_post(post: dict, account: str = "") -> dict | None:
     """One post in the shape novel_names reads. `account` wins when the caller already
-    knows it (the AIsa query, or the key of a per-account dump)."""
+    knows it (the key of a per-account dump). The AIsa path does not use this."""
     if not isinstance(post, dict):
         return None
     who = _account(post, account)
@@ -126,7 +126,7 @@ def load_posts(path: Path) -> list[dict]:
     (`data` plus `includes.users`).
     """
     posts = []
-    for account, tw in _bundles(json.loads(Path(path).read_text())):
+    for account, tw in _bundles(json.loads(Path(path).read_text(encoding="utf-8"))):
         row = _as_post(tw, account)
         if row and row["text"].strip():
             posts.append(row)
@@ -202,14 +202,15 @@ def _settle(posts: list[dict], state: Path) -> dict:
 
 
 def _from_aisa(handles: list[str]) -> tuple[list[dict], dict]:
+    """The default path. Field names stay AIsa's: `likeCount`, `url`, `createdAt`, and the
+    handle as written in the config. File-mode parsing does not apply here."""
     data, cost = aisa.call_all([{"call_id": h, "tool": "get_twitter_user_last_tweets", "arguments": {"userName": h}}
                                 for h in handles])
     posts = []
     for h in handles:
         for tw in ((data.get(h) or {}).get("data") or {}).get("tweets") or []:
-            row = _as_post(tw, h)
-            if row:
-                posts.append(row)
+            posts.append({"account": h, "text": tw.get("text") or "", "likes": int(tw.get("likeCount") or 0),
+                          "url": tw.get("url", ""), "created": _posted(tw)})
     return posts, {"accounts": len(handles), "answered": len(data), "posts": len(posts), "cost_micros": cost}
 
 
