@@ -6,7 +6,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from radar import __main__ as cli
-from radar import breakout, config, gsc, i18n, judge, new_sites, notify, report, review, sitemaps, store
+from radar import breakout, config, gsc, i18n, judge, new_sites, notify, report, review, sitemaps, snap, sources, store
 from radar.sources import base_name, novel_names
 from radar.terms import names
 
@@ -74,6 +74,97 @@ def test_x_ignores_old_posts_and_retweets():
     old = [_post("a", "Strata is fast", hours_ago=48), _post("b", "Strata rocks", hours_ago=48)]
     rts = [_post("a", "RT @x: Strata is fast"), _post("b", "RT @x: Strata rocks")]
     assert novel_names(old, {}, NOW) == [] and novel_names(rts, {}, NOW) == []
+
+
+def _posts_file(tmp_path, payload, name="posts.json"):
+    path = tmp_path / name
+    path.write_text(json.dumps(payload))
+    return name
+
+
+def _x_cfg(tmp_path, handles=("a", "b"), posts_file="posts.json"):
+    return {"_dir": tmp_path, "x_accounts": {"labs": list(handles), "bloggers": [], "posts_file": posts_file}}
+
+
+def test_load_posts_reads_a_list_an_aisa_dump_and_an_x_api_payload(tmp_path):
+    listed = sources.load_posts(tmp_path / _posts_file(tmp_path, [
+        {"account": "@Alibaba_Qwen", "text": "Qwen3.9 is out", "likes": 12,
+         "created": "2026-10-13T08:00:00+00:00"},
+        {"userName": "dotey", "text": "space padded day", "likeCount": "3",
+         "createdAt": "Mon Oct  5 08:00:00 +0000 2026"},
+    ], "list.json"))
+    assert [p["account"] for p in listed] == ["Alibaba_Qwen", "dotey"]
+    assert listed[0]["likes"] == 12 and listed[0]["created"] == datetime(2026, 10, 13, 8, tzinfo=timezone.utc)
+    assert listed[1]["created"] == datetime(2026, 10, 5, 8, tzinfo=timezone.utc) and listed[1]["likes"] == 3
+
+    dumped = sources.load_posts(tmp_path / _posts_file(tmp_path, {
+        "Alibaba_Qwen": {"data": {"tweets": [{"text": "Qwen3.9 is out", "likeCount": 9,
+                                              "url": "https://x.com/q/1", "createdAt": "Tue Oct 13 08:00:00 +0000 2026"}]}}},
+        "dump.json"))
+    assert dumped == [{"account": "Alibaba_Qwen", "text": "Qwen3.9 is out", "likes": 9,
+                       "url": "https://x.com/q/1", "created": datetime(2026, 10, 13, 8, tzinfo=timezone.utc)}]
+
+    api = sources.load_posts(tmp_path / _posts_file(tmp_path, {
+        "data": [{"text": "Hello Seedance", "id": "9", "author_id": "1", "created_at": "2026-10-13T08:00:00.000Z",
+                  "public_metrics": {"like_count": 4}}],
+        "includes": {"users": [{"id": "1", "username": "Kling_ai"}]}}, "api.json"))
+    assert api[0]["account"] == "Kling_ai" and api[0]["likes"] == 4
+    assert api[0]["url"] == "https://x.com/Kling_ai/status/9"
+    assert api[0]["created"] == datetime(2026, 10, 13, 8, tzinfo=timezone.utc)
+
+
+def test_posts_file_reports_a_new_name_and_does_not_call_aisa(tmp_path, monkeypatch):
+    def fail(*a, **k):
+        raise AssertionError("AIsa was called")
+    monkeypatch.setattr(sources.aisa, "call_all", fail)
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    _posts_file(tmp_path, [
+        {"account": "a", "text": "Strata is fast", "likes": 3, "url": "https://x.com/a/status/1",
+         "created": (now - timedelta(hours=2)).isoformat()},
+        {"account": "B", "text": "Tried Strata today", "likes": 1, "url": "https://x.com/b/status/2",
+         "created": (now - timedelta(hours=1)).isoformat()},
+        {"account": "stranger", "text": "HyperFrames just shipped", "likes": 999, "created": now.isoformat()},
+    ])
+    snap.save(tmp_path / "x_vocab.json.gz", {"already": "2026-10-01"})
+    out = sources.x_new(_x_cfg(tmp_path), tmp_path)
+    assert out["cost_micros"] == 0 and out["posts"] == 2 and out["answered"] == 2 and out["accounts"] == 2
+    assert out["posts_file"] == "posts.json" and [r["term"] for r in out["terms"]] == ["strata"]
+    assert out["terms"][0]["sources"] == ["a", "b"]
+    vocab = snap.load(tmp_path / "x_vocab.json.gz")
+    assert "strata" in vocab and "hyperframes" not in vocab and vocab["already"] == "2026-10-01"
+
+
+def test_posts_file_with_no_account_list_reads_every_account(tmp_path):
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    _posts_file(tmp_path, [
+        {"account": "a", "text": "Strata is fast", "likes": 1, "created": (now - timedelta(hours=1)).isoformat()},
+        {"account": "b", "text": "Tried Strata today", "likes": 1, "created": now.isoformat()},
+    ])
+    snap.save(tmp_path / "x_vocab.json.gz", {})
+    out = sources.x_new(_x_cfg(tmp_path, handles=()), tmp_path)
+    assert out["accounts"] == 2 and [r["term"] for r in out["terms"]] == ["strata"]
+
+
+def test_posts_file_first_run_only_builds_the_vocabulary(tmp_path):
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    _posts_file(tmp_path, [{"account": "a", "text": "Strata is fast", "likes": 1, "created": now.isoformat()}])
+    out = sources.x_new(_x_cfg(tmp_path, handles=("a",)), tmp_path)
+    assert out["first_run"] and out["terms"] == [] and "strata" in snap.load(tmp_path / "x_vocab.json.gz")
+
+
+def test_a_missing_posts_file_keeps_the_vocabulary(tmp_path):
+    snap.save(tmp_path / "x_vocab.json.gz", {"strata": "2026-10-01"})
+    with pytest.raises(FileNotFoundError):
+        sources.x_new(_x_cfg(tmp_path, posts_file="missing.json"), tmp_path)
+    assert snap.load(tmp_path / "x_vocab.json.gz") == {"strata": "2026-10-01"}
+
+
+def test_an_empty_posts_file_keeps_the_vocabulary(tmp_path):
+    snap.save(tmp_path / "x_vocab.json.gz", {"strata": "2026-10-01"})
+    _posts_file(tmp_path, [])
+    out = sources.x_new(_x_cfg(tmp_path), tmp_path)
+    assert out["posts"] == 0 and out["terms"] == []
+    assert snap.load(tmp_path / "x_vocab.json.gz") == {"strata": "2026-10-01"}
 
 
 # --- ① HF: copies of one model group under its base name -----------------------------
@@ -351,6 +442,31 @@ def _write_config(tmp_path, **more):
     path = tmp_path / "config.json"
     path.write_text(json.dumps({"x_accounts": {"labs": ["a"]}, **more}))
     return path
+
+
+def test_daily_report_says_the_x_posts_came_from_a_file(tmp_path, monkeypatch):
+    _no_judge(monkeypatch)
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    (tmp_path / "posts.json").write_text(json.dumps([
+        {"account": "a", "text": "Strata is fast", "likes": 3, "url": "https://x.com/a/status/1",
+         "created": (now - timedelta(hours=2)).isoformat()},
+        {"account": "b", "text": "Tried Strata today", "likes": 1, "url": "https://x.com/b/status/2",
+         "created": (now - timedelta(hours=1)).isoformat()},
+    ]))
+    state = tmp_path / "state"
+    snap.save(state / "x_vocab.json.gz", {"already": "2026-10-01"})
+    out = tmp_path / "report.md"
+    code = cli.main(["daily", "--config", str(_write_config(tmp_path, x_accounts={"labs": ["a", "b"], "posts_file": "posts.json"})),
+                     "--state", str(state), "--out", str(out), "--skip", "hf,breakout,sitemaps,newsites,gsc,review,usecases"])
+    assert code == 0
+    text = out.read_text()
+    assert "| **strata** |" in text and "read from posts.json" in text and "$0.000" in text
+    assert cli.main(["daily", "--config", str(_write_config(tmp_path, lang="zh", x_accounts={"labs": ["a", "b"], "posts_file": "posts.json"})),
+                     "--state", str(state), "--out", str(out), "--skip", "hf,breakout,sitemaps,newsites,gsc,review,usecases"]) == 0
+    second = out.read_text()
+    # The name is in the vocabulary now, so it is not a lead again. The line under
+    # recent sources is the copy kept from the first run.
+    assert "| **strata** |" not in second and "读自 posts.json" in second
 
 
 def test_sources_run_writes_no_report_when_nothing_is_new(tmp_path, monkeypatch):
