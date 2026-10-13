@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 
-from . import config, judge
+from . import config, judge, usecases
 from .i18n import t
 
 SHOWN = 20
@@ -199,6 +199,8 @@ def keyword_table(cfg: dict, uc: dict) -> list[str]:
     if not uc.get("names"):
         return lines + [t("uc_none")]
     c = cfg["usecases"]
+    if usecases.degraded(uc):
+        lines += [t("uc_degraded"), ""]
     lines += [t("uc_intro", names=", ".join(uc["names"]), proposed=uc["proposed"], relevant=uc["relevant"], kept=uc["kept"], min=c["min_volume"],
                 month=uc["volume_month"] or "?"),
               t("uc_bench", bench=uc["benchmark"], bench_daily=uc["bench_daily"]) if uc.get("bench_daily") else t("uc_bench_none", bench=uc["benchmark"]), "",
@@ -234,6 +236,8 @@ def keyword_table(cfg: dict, uc: dict) -> list[str]:
         lines += ["", t("uc_cosearch_h") + " " + ", ".join(t("uc_cosearch_item", term=x["term"], name=x["with"]) for x in uc["cosearch"])]
     if uc.get("no_evidence"):
         lines += ["", t("uc_no_evidence", names=", ".join(uc["no_evidence"]))]
+    if uc.get("posts_error"):
+        lines += ["", t("uc_posts_err", why=uc["posts_error"])]
     if uc.get("related_errors"):
         lines += ["", t("uc_related_err", names="; ".join(uc["related_errors"]))]
     elif not uc.get("related"):

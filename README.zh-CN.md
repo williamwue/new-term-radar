@@ -22,6 +22,8 @@
 
 ## 它读什么
 
+![雷达的流程：四类信号、名字判断、新词表、日报和 14 天复核；三种用法：命令行、3 个 Agent Skill、MCP 服务器](docs/radar.zh.gif)
+
 | 信号 | 抓什么 | 需要 | 花费 |
 |---|---|---|---|
 | ① X | 你关注的账号里，60 天内第一次出现的名字 | AIsa key，或一份本地帖子文件 | 每个账号每次 $0.003；用文件则免费 |
@@ -31,7 +33,7 @@
 | ③ 新站 | 近 90 天注册且首次被收录、已经有 20 个以上排名词的域名 | AIsa key | 每个查询约 $0.13，每周一次 |
 | ④ Search Console | 你的站第一次获得曝光的查询词（用新鲜数据） | 你自己的 Google 授权 | 免费 |
 | ⑤ 复盘 | 每条线索 14 天后去 Google Trends 核对，和它自己的基线比；按信号统计命中率和提前天数 | AIsa key | 每个搜索写法 $0.0012 |
-| 新词表 | 针对当天的新名字:找出它背后的通用搜索词(大家拿这个新东西做什么),逐个估算规模并给出决策 | AIsa key；GoAnyAPI key 可选 | 5 个名字约每天 $0.15，加上 GoAnyAPI 约 $0.22 |
+| 新词表 | 针对当天的新名字:找出它背后的通用搜索词(大家拿这个新东西做什么),逐个估算规模并给出决策 | AIsa key；[GoAnyAPI](https://goanyapi.com) key 可选 | 5 个名字约每天 $0.15，加上 GoAnyAPI 约 $0.22 |
 | 名字判断 | 小模型给每个词打分：是某个具体东西的名字，还是普通词？ | AIsa key | 每次不到一美分 |
 
 价格是 2026 年 10 月 AIsa 的实际收费。按示例配置（35 个 X 账号、每天读三次，新词表每天读 5 个名字），一个月约 $15：读 X 约 $10，新词表约 $5。少读几个账号或者每天只读一次，费用按比例下降。
@@ -73,6 +75,21 @@
 - **Google Trends 最后两天的数据没有结算。** 互不相关的词在这两天会依次返回 0 和 100，看起来像一个尖峰。我们第一遍就是被这个骗了；现在代码里所有读 Trends 的地方都会丢掉这两天，而且上涨必须持续两天才算数。
 - Google Ads 的搜索量滞后约两个月。月搜只有几百的词，Trends 基本读不出可靠的数。
 
+### 某个数据源没配或挂了的时候
+
+表照常产出，但会变薄，并且会写明缺了哪一块：
+
+| 情况 | 表里少了什么 | 表下面会出现的一行 |
+|---|---|---|
+| 没配 `GOANYAPI_API_KEY`（默认就是这样） | 没有 🔎 行、没有名字的长尾、没有「一起被搜的其他名字」、没有 `(US)` 走势。通用词只来自模型，走势全部读全球数据，真实的上涨可能被读成「没动」 | 「相关查询未开启：设置 GOANYAPI_API_KEY 后…」 |
+| GoAnyAPI 的 Trends 挂了（接入第一天 2026-10-12 就遇到过） | 这一次运行等同于没配 key | 「相关查询失败：…」和「国家数据获取失败，已退回全球数据：…」 |
+| 某个名字的 AIsa 推文搜索失败（2026-10-13 遇到两次超时） | 这个名字的推文证据。仓库还有 README 可用；没有 README 的模型或产品就只剩相关查询，如果又没配 GoAnyAPI，这一天它就没有通用词 | 「推文搜索失败，这次只用了 README 和相关查询：…」 |
+| 某个名字既没有推文也没有 README | 它的通用词；名字自己那一行还在 | 「没找到帖子或 README：…」 |
+| 当天没有名字得分 0.8 以上的「东西」类线索 | 整张表 | 「今天没有要读的名字…」 |
+| AIsa 的搜索量或 Trends 查询失败 | 整张表：这两项没有替代来源 | 表的位置直接显示报错 |
+
+表变薄不等于今天没动静。下结论说「什么都没涨」之前，先看表下面这几行。
+
 把配置写成 `"usecases": {"per_day": 0}`，或者加 `--skip usecases`，可以关掉它。
 
 ## 一个必需的 key，一个可选的
@@ -81,7 +98,7 @@
 
 > 上面是推荐链接：通过它注册是对这个项目的支持。从 aisa.one 任何入口拿到的 key 用起来完全一样。
 
-**可选：`GOANYAPI_API_KEY`**（[goanyapi.com](https://goanyapi.com)）从两方面改进新词表，每天约 $0.07：给每个名字加上 Google Trends 的相关查询；名字和规模较大的通用词（月搜 1,000 以上，最多 8 行）的走势，改用单个国家的 30 天日数据来读，这份数据结算到昨天。这些行的「现在」一列后面会标出国家，例如 `还在涨 (US)`。不配这个 key，新词表只用模型提出的写法和全球数据。这个服务很新（2026 年 8 月才发布）；我们测试时每次调用要 20 到 55 秒，大约十次有一次失败，所以雷达会试两次，失败就写在表里，继续往下跑。
+**可选：`GOANYAPI_API_KEY`**（[goanyapi.com](https://goanyapi.com/r/ga-95708898fb)）从两方面改进新词表，每天约 $0.07：给每个名字加上 Google Trends 的相关查询；名字和规模较大的通用词（月搜 1,000 以上，最多 8 行）的走势，改用单个国家的 30 天日数据来读，这份数据结算到昨天。这些行的「现在」一列后面会标出国家，例如 `还在涨 (US)`。不配这个 key，新词表只用模型提出的写法和全球数据。这个服务很新（2026 年 8 月才发布）；我们测试时每次调用要 20 到 55 秒，大约十次有一次失败，所以雷达会试两次，失败就写在表里，继续往下跑。上面这个也是推荐链接。
 
 没有 AIsa 的 key 时，免费的信号照常运行（Hugging Face、GitHub、sitemap、Search Console，以及设了 `posts_file` 时的 X），只是报告里所有词不分先后列出，因为没有模型判断哪些是名字。
 
@@ -93,7 +110,7 @@
 git clone https://github.com/zhuyansen/new-term-radar
 cd new-term-radar
 cp config.example.json config.json      # 然后编辑：你的 X 账号、sitemap、主题；想要中文报告把 lang 改成 "zh"
-export AISA_API_KEY=...                 # 从 https://go.aisa.one/yansen-zhu 获取
+export AISA_API_KEY=...                 # 从 https://go.aisa.one/yansen-zhu 获取；用 AIsa 命令行 `aisa login` 登录过也可以
 python -m radar daily --out report.md
 ```
 
@@ -176,6 +193,62 @@ python scripts/gsc_auth.py gsc_client.json   # 打开一次浏览器授权，写
 
 `--mail` 通过 [Resend](https://resend.com) 发送报告。设置 `RESEND_API_KEY`、`EMAIL_FROM`（你在 Resend 验证过的域名下的地址）和 `RADAR_EMAIL_TO`（多个用逗号分隔）。要 HTML 版需要 `pip install markdown`。
 
+## 在 agent 里用：skill 和 MCP 服务器
+
+### Skill
+
+`skills/` 里有三个 [Agent Skill](https://agentskills.io/home)：一个把整件事做完，另外两个是拆开的两半，给想分开用的人。
+
+| Skill | 做什么 |
+|---|---|
+| `new-term-radar` | 一次跑完：今天的新名字，加上它们的关键词优先级表。也可以直接给它你已有的名字。从这个开始 |
+| `ai-listening` | 把各路信号最近 24 小时的新东西收集起来、去重，出一份名字报告 |
+| `seo-new-keywords-research` | 给它名字，或者一段提到这些名字的原始文本，它返回关键词优先级表：每个名字背后的通用词，经过筛选、估算规模并给出决策 |
+
+```bash
+npx skills add zhuyansen/new-term-radar
+```
+
+在 Claude Code 里，这三个 skill 也可以作为插件安装：
+
+```
+/plugin marketplace add zhuyansen/new-term-radar
+/plugin install new-term-radar@new-term-radar
+```
+
+然后对你的 agent 说「今天有哪些 AI 新词」「出一份 AI listening 报告」或「给 PhotoCraft 和 SynthID Detector 做关键词调研」。skill 会在本机没有这个仓库时把它克隆到 `~/new-term-radar`，在任何付费运行之前先告诉你大概花多少，表不完整时也会说明。
+
+### MCP 服务器
+
+给支持 MCP 的客户端用（Claude Code、Cursor、Claude Desktop）：
+
+```bash
+pip install "new-term-radar[mcp] @ git+https://github.com/zhuyansen/new-term-radar"
+```
+
+```json
+{
+  "mcpServers": {
+    "new-term-radar": {
+      "command": "new-term-radar-mcp",
+      "env": {
+        "AISA_API_KEY": "...",
+        "RADAR_CONFIG": "/绝对路径/config.json",
+        "RADAR_STATE": "/绝对路径/state"
+      }
+    }
+  }
+}
+```
+
+| 工具 | 返回什么 | 花费和耗时 |
+|---|---|---|
+| `recent_leads` | 雷达记下的线索，带复盘结论和各信号命中率 | 免费，立刻返回 |
+| `keyword_table` | 你给的名字的新词表 | 每个名字约 $0.05，每次调用另加 $0.09；每个名字 40 到 90 秒 |
+| `run_radar` | 跑一次 `sources` 或 `daily`，返回报告 | 付费，要几分钟。只适合第一次试用，定时运行应该交给 cron 或 Actions |
+
+把 `RADAR_STATE` 指向定时任务写入的那个目录，`recent_leads` 看到的就是定时任务记下的线索。同样的两个功能在命令行里也有：`python -m radar keywords "名字" …` 和 `python -m radar leads`。
+
 ## 在 GitHub Actions 上跑
 
 `.github/workflows/radar.yml` 每 8 小时跑一次 `sources`、每天跑一次 `daily`，状态存在 Actions 缓存里，报告写到每次运行的摘要页。默认关闭，需要你主动开启：
@@ -212,6 +285,13 @@ python -m pytest -q tests
 ```
 
 测试覆盖逻辑部分（名字提取、打分、存储、报告），不访问网络。
+
+## 致谢
+
+- [子木 @CoderJeffLee](https://x.com/CoderJeffLee)：新词表的想法来自他的建议，新名字和它下游的通用词应该放在同一张表里，每行给出决策。
+- [饭特稀 | Fentix @fantexi997](https://x.com/fantexi997)：[GoAnyAPI](https://goanyapi.com)，相关查询和单个国家 Trends 走势这个可选数据源。
+
+流程图由 `docs/make_diagram.py` 生成（需要 `rsvg-convert` 和 `ffmpeg`）。
 
 ## 许可
 

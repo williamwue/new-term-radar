@@ -106,3 +106,13 @@ def summary(conn: sqlite3.Connection, today: date | None = None) -> dict:
         leads = s.pop("leads")
         s["median_lead"] = statistics.median(leads) if leads else None
     return {"by_signal": by, "pending": pending, "window_days": SUMMARY_WINDOW}
+
+
+def leads(conn: sqlite3.Connection, days: int = 7, today: date | None = None) -> list[dict]:
+    """Leads seen in the last `days` days, newest first, with their review verdict when there is one."""
+    since = ((today or date.today()) - timedelta(days=days)).isoformat()
+    rows = conn.execute("SELECT term, first_seen, last_seen, signals, notes, named, variants, verdict, lead_days FROM leads "
+                        "WHERE last_seen >= ? ORDER BY last_seen DESC, first_seen DESC, term", (since,)).fetchall()
+    return [{"term": t, "first_seen": f, "last_seen": l, "signals": json.loads(k), "note": (json.loads(n) or [""])[-1],
+             "name_score": named, "variants": json.loads(v), "verdict": verdict, "days_ahead": ahead}
+            for t, f, l, k, n, named, v, verdict, ahead in rows]
