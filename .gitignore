@@ -2,6 +2,7 @@ config.json
 state/
 gsc_token.json
 gsc_client.json
+x_posts.json
 report.md
 report.json
 sources.md

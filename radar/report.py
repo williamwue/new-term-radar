@@ -135,13 +135,17 @@ def _review_lines(cfg: dict, rev: dict, summ: dict) -> list[str]:
     return lines
 
 
+def _x_ok(x: dict) -> str:
+    return t("st_x_ok", answered=x["answered"], accounts=x["accounts"], posts=x["posts"]) + \
+        (t("st_x_first") if x.get("first_run") else "") + \
+        (t("st_x_file", file=x["posts_file"]) if x.get("posts_file") else "")
+
+
 def _status_lines(b: dict[str, dict], extra: dict[str, dict]) -> list[str]:
     x, hf, bo, sm = b["x"], b["hf"], b["breakout"], b["sitemap"]
     lines = ["", t("status_h"), ""]
     if not x.get("skipped"):
-        ok = "" if x.get("error") else t("st_x_ok", answered=x["answered"], accounts=x["accounts"], posts=x["posts"]) + \
-            (t("st_x_first") if x.get("first_run") else "")
-        lines.append(t("st_x", state=_state(x, ok)))
+        lines.append(t("st_x", state=_state(x, "" if x.get("error") else _x_ok(x))))
     if not hf.get("skipped"):
         ok = "" if hf.get("error") else t("st_hf_ok", models=hf["models"]) + (t("st_first") if hf.get("first_run") else "")
         lines.append(t("st_hf", state=_state(hf, ok)))
@@ -277,6 +281,8 @@ def sources(cfg: dict, lead: list[dict], b: dict[str, dict], extra: dict[str, di
     for key, label in (("x", "st_x"), ("hf", "st_hf")):
         if b[key].get("error"):
             lines.append(t(label, state=b[key]["error"]))
+        elif key == "x" and b[key].get("posts_file"):
+            lines.append(t(label, state=_x_ok(b[key])))
     for key, label in (("judge", "st_judge"), ("record", "st_record")):
         if extra.get(key, {}).get("error"):
             lines.append(t(label, state=extra[key]["error"]))

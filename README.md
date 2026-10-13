@@ -40,7 +40,7 @@ flowchart LR
 
 | Signal | What it catches | Needs | Cost |
 |---|---|---|---|
-| ① X | Names the accounts in your list used for the first time in 60 days | AIsa key | $0.003 per account per run |
+| ① X | Names the accounts in your list used for the first time in 60 days | AIsa key, or a local posts file | $0.003 per account per run; nothing from a file |
 | ① Hugging Face | Models new to the trending top 50; quantised copies grouped under the base name | nothing | free |
 | ② GitHub breakout | A repo under 14 days old averaging 200+ stars a day, or +400 since yesterday; adds the search variants people use ("niko strata") | nothing (a GitHub token raises the rate limit) | free |
 | ③ Sitemaps | Words that several new URLs on a site share and its older URLs rarely carried | the sitemaps you list | free |
@@ -99,7 +99,7 @@ Everything the radar needs goes through [AIsa](https://go.aisa.one/yansen-zhu): 
 
 **Optional: `GOANYAPI_API_KEY`** ([goanyapi.com](https://goanyapi.com)) improves the keyword table in two ways, for about $0.07 a day: it adds Google Trends' related queries for each name, and it reads the curve of the names and the bigger generic terms (1,000 searches a month or more, eight rows at most) from 30 days of daily data for one country, settled to yesterday. Those rows show the country after "Now", as in `still rising (US)`. Without the key the table is built from the model's phrases and the worldwide series alone. The service is young (first released in August 2026); in our tests calls took 20 to 55 seconds and about one in ten failed, so the radar tries twice, reports a failure in the table and carries on.
 
-Without an AIsa key the free signals still run (Hugging Face, GitHub, sitemaps, Search Console); the report then lists every term unsorted, because nothing judges which are names.
+Without an AIsa key the free signals still run (Hugging Face, GitHub, sitemaps, Search Console, and X when `posts_file` is set); the report then lists every term unsorted, because nothing judges which are names.
 
 ## Quick start
 
@@ -159,7 +159,7 @@ and from `sources`:
 | Key | What it is |
 |---|---|
 | `lang` | `"en"` or `"zh"`: the language of the report |
-| `x_accounts` | `labs` and `bloggers`: X handles to read. Labs say names first; pick the bloggers your field's new terms spread through |
+| `x_accounts` | `labs` and `bloggers`: X handles to read. Labs say names first; pick the bloggers your field's new terms spread through. `posts_file` (optional) reads a local file instead of AIsa; see below |
 | `sitemaps` | Sites whose new pages you want to see. `index` is a sitemap, or a sitemap index when `shards` (a regex) picks which sub-sitemaps to read. `pause` is the seconds between requests to that site. `strip_locale` drops `/en/`, `/zh-CN/` prefixes so one entry in many languages counts once |
 | `topics` | Name and regex: each topic gets its own section listing the leads, repos and queries that match |
 | `known_terms` | Terms you already have a page for, or never want reported. A lead that contains one, or is contained in one, is marked and not kept for review |
@@ -172,6 +172,19 @@ and from `sources`:
 | `gsc` | `site` (`sc-domain:example.com`) and `token_file`. Leave `{}` to turn the signal off |
 
 Please read each site's robots.txt before you add its sitemap, and keep `pause` at or above its crawl-delay. The example config makes a few dozen requests a day in total, spaced by `pause`.
+
+### X from a file you already have (optional)
+
+Set `"posts_file"` inside `x_accounts` to a JSON file, a path relative to `config.json`. The X signal reads that file and does not call AIsa: no key and no cost, and the rules are the same (a name from the last 30 hours that these accounts have not used in 60 days). The file is a JSON array:
+
+```json
+[
+  {"account": "Alibaba_Qwen", "text": "Qwen3.9 is out", "likes": 900,
+   "url": "https://x.com/Alibaba_Qwen/status/1", "created": "2026-10-13T08:00:00+00:00"}
+]
+```
+
+`likes` may be named `likeCount`, and `created` may be X's own timestamp (`Tue Oct 13 08:00:00 +0000 2026`; a single-digit day is space-padded, as in `Mon Oct  5 08:00:00 +0000 2026`). An object keyed by account is also accepted, including what AIsa returns for one account (`{"data": {"tweets": [...]}}`) and an X API payload (`data` plus `includes.users`). Posts from accounts outside `labs` and `bloggers` are ignored; leave both lists empty to read every account in the file. A post with no readable time is not reported: it only joins the vocabulary, as a post older than 30 hours does. A missing or unreadable file is an error in the report, and yesterday's vocabulary is kept. `x_posts.json` is in `.gitignore`.
 
 ### Search Console (optional)
 

@@ -54,6 +54,7 @@ T = {
     "st_x": ("- ① X: {state}", "- ① X:{state}"), "st_hf": ("- ① HF: {state}", "- ① HF:{state}"),
     "st_x_ok": ("{answered}/{accounts} accounts, {posts} posts", "{answered}/{accounts} 个账号,{posts} 条帖子"),
     "st_x_first": (", first run: vocabulary built, nothing reported", ",首次运行,只建词表"),
+    "st_x_file": (", read from {file}", ",读自 {file}"),
     "st_hf_ok": ("{models} trending models", "trending {models} 个模型"),
     "st_first": (", first run: snapshot built", ",首次运行,只建快照"),
     "st_breakout": ("- ② breakouts: {state}", "- ② 爆发:{state}"),

@@ -24,7 +24,7 @@
 
 | 信号 | 抓什么 | 需要 | 花费 |
 |---|---|---|---|
-| ① X | 你关注的账号里，60 天内第一次出现的名字 | AIsa key | 每个账号每次 $0.003 |
+| ① X | 你关注的账号里，60 天内第一次出现的名字 | AIsa key，或一份本地帖子文件 | 每个账号每次 $0.003；用文件则免费 |
 | ① Hugging Face | 新进热门榜前 50 的模型；量化版、微调版归到同一个基础名下 | 无 | 免费 |
 | ② GitHub 爆发 | 创建不到 14 天、平均每天涨 200 星以上，或比昨天多 400 星的仓库；附带大家实际会搜的写法（「niko strata」） | 无（有 GitHub token 限额更高） | 免费 |
 | ③ 竞品 sitemap | 某个站新增的几个网址共用、而它的旧网址里很少出现的词 | 你列出的 sitemap | 免费 |
@@ -83,7 +83,7 @@
 
 **可选：`GOANYAPI_API_KEY`**（[goanyapi.com](https://goanyapi.com)）从两方面改进新词表，每天约 $0.07：给每个名字加上 Google Trends 的相关查询；名字和规模较大的通用词（月搜 1,000 以上，最多 8 行）的走势，改用单个国家的 30 天日数据来读，这份数据结算到昨天。这些行的「现在」一列后面会标出国家，例如 `还在涨 (US)`。不配这个 key，新词表只用模型提出的写法和全球数据。这个服务很新（2026 年 8 月才发布）；我们测试时每次调用要 20 到 55 秒，大约十次有一次失败，所以雷达会试两次，失败就写在表里，继续往下跑。
 
-没有 AIsa 的 key 时，免费的信号照常运行（Hugging Face、GitHub、sitemap、Search Console），只是报告里所有词不分先后列出，因为没有模型判断哪些是名字。
+没有 AIsa 的 key 时，免费的信号照常运行（Hugging Face、GitHub、sitemap、Search Console，以及设了 `posts_file` 时的 X），只是报告里所有词不分先后列出，因为没有模型判断哪些是名字。
 
 ## 快速开始
 
@@ -136,7 +136,7 @@ python -m radar daily --skip x,hf --out report.md  # 其余全部，每天一次
 | 字段 | 含义 |
 |---|---|
 | `lang` | `"en"` 或 `"zh"`：报告的语言 |
-| `x_accounts` | `labs` 和 `bloggers`：要读的 X 账号。实验室最先说出名字；博主选你这个领域里新词靠谁传开 |
+| `x_accounts` | `labs` 和 `bloggers`：要读的 X 账号。实验室最先说出名字；博主选你这个领域里新词靠谁传开。可选 `posts_file`：改读本地文件，不调用 AIsa，见下 |
 | `sitemaps` | 想看哪些站新增了什么页面。`index` 是一个 sitemap；如果它是 sitemap 索引，用 `shards`（正则）挑要读的子 sitemap。`pause` 是对这个站两次请求之间的秒数。`strip_locale` 去掉 `/en/`、`/zh-CN/` 这类前缀，同一条目的多语言版本只算一次 |
 | `topics` | 名称和正则：每个主题单独一节，列出匹配的线索、仓库和查询 |
 | `known_terms` | 你已经有页面的词，或者永远不想看到的词。包含它或被它包含的线索会被标出，不进入复盘 |
@@ -149,6 +149,19 @@ python -m radar daily --skip x,hf --out report.md  # 其余全部，每天一次
 | `gsc` | `site`（`sc-domain:example.com`）和 `token_file`。留 `{}` 即关闭 |
 
 添加某个站的 sitemap 之前，请先看它的 robots.txt，`pause` 不要低于它的 crawl-delay。示例配置每天总共几十次请求，按 `pause` 间隔发出。
+
+### 用已有的帖子文件读 X（可选）
+
+在 `x_accounts` 里写 `"posts_file": "x_posts.json"`，路径相对于 `config.json`。X 信号改读这个文件，不再调用 AIsa：不需要 key，也没有花费，判断规则不变（近 30 小时里、这些账号 60 天内没说过的名字）。文件是一个 JSON 数组：
+
+```json
+[
+  {"account": "Alibaba_Qwen", "text": "Qwen3.9 is out", "likes": 900,
+   "url": "https://x.com/Alibaba_Qwen/status/1", "created": "2026-10-13T08:00:00+00:00"}
+]
+```
+
+`likes` 也可以叫 `likeCount`，`created` 也可以用 X 自己的时间格式（`Tue Oct 13 08:00:00 +0000 2026`；个位数日期前面加空格，例如 `Mon Oct  5 08:00:00 +0000 2026`）。也可以是按账号做键的对象，包括 AIsa 对单个账号的返回（`{"data": {"tweets": [...]}}`）和 X API 的返回（`data` 加上 `includes.users`）。不在 `labs` 和 `bloggers` 里的账号会被忽略；两个列表都留空，就读文件里的每个账号。读不出时间的帖子不会被报出来，只进入词表，和超过 30 小时的旧帖一样。文件缺失或读不了时，报告里记一条错误，昨天的词表保持原样。`x_posts.json` 已在 `.gitignore` 里。
 
 ### Search Console（可选）
 

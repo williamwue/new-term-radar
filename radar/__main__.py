@@ -4,7 +4,7 @@
   python -m radar sources  [--config config.json] [--state state] [--out sources.md] [--mail]
 
 Signals:
-  ① x         names the accounts you follow said for the first time (AIsa)
+  ① x         names the accounts you follow said for the first time (AIsa, or a local posts file)
   ① hf        models new to Hugging Face's trending top 50
   ② breakout  one new GitHub repo taking off on its own
   ③ sitemaps  pages other sites added since the last run
