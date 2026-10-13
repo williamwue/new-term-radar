@@ -1,6 +1,6 @@
 """Client for AIsa, the radar's one paid dependency: its tool router (X posts, Google
 Trends and whois data through DataForSEO) and its OpenAI-compatible chat endpoint (the
-name judge). One key, AISA_API_KEY.
+name judge). One key: AISA_API_KEY, or the one the AIsa CLI stores when you log in.
 
 The tool router runs a batch's calls one by one, about 10 s each, so batches are kept to
 BATCH calls and the timeout is long. Every call is billed: a failed batch is never
@@ -15,6 +15,7 @@ import json
 import os
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 from . import UA
 
@@ -31,10 +32,23 @@ class AisaError(RuntimeError):
 
 
 def key() -> str:
+    """AISA_API_KEY, else the key the AIsa CLI stored at login (~/.aisa)."""
     k = os.environ.get("AISA_API_KEY", "").strip()
-    if not k:
-        raise AisaError("no AIsa key: set AISA_API_KEY")
-    return k
+    if k:
+        return k
+    home = Path.home() / ".aisa"
+    try:
+        if (home / "key").exists():
+            return (home / "key").read_text().strip()
+        if (home / "tokens.json").exists():
+            return json.loads((home / "tokens.json").read_text()).get("accessToken", "") or _no_key()
+    except (OSError, ValueError):
+        pass
+    return _no_key()
+
+
+def _no_key() -> str:
+    raise AisaError("no AIsa key: set AISA_API_KEY, or log in with the AIsa CLI (`aisa login`)")
 
 
 def _post(url: str, body: dict, timeout: int) -> dict:

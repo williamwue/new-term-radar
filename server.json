@@ -1,0 +1,61 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.zhuyansen/new-term-radar",
+  "title": "New-Term Radar",
+  "description": "New AI model, product and repo names as they surface, and the search terms behind them, sized.",
+  "repository": {
+    "url": "https://github.com/zhuyansen/new-term-radar",
+    "source": "github"
+  },
+  "version": "0.2.1",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "new-term-radar",
+      "version": "0.2.1",
+      "runtimeHint": "uvx",
+      "runtimeArguments": [
+        {
+          "type": "named",
+          "name": "--with",
+          "value": "mcp",
+          "description": "The radar itself has no dependencies; the server needs the MCP SDK."
+        }
+      ],
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "mcp",
+          "description": "Start the MCP server on stdio."
+        }
+      ],
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "AISA_API_KEY",
+          "description": "AIsa key. X posts, search volumes, Google Trends and the models all go through it.",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "GOANYAPI_API_KEY",
+          "description": "Optional. Adds what people searched together with each name, and one country's settled daily series.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "RADAR_CONFIG",
+          "description": "Optional. Absolute path to your config.json (X accounts, sitemaps, thresholds).",
+          "isRequired": false
+        },
+        {
+          "name": "RADAR_STATE",
+          "description": "Optional. Absolute path to the directory that holds the radar's SQLite state.",
+          "isRequired": false
+        }
+      ]
+    }
+  ]
+}

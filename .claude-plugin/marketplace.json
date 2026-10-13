@@ -1,0 +1,18 @@
+{
+  "name": "new-term-radar",
+  "owner": {
+    "name": "Jason Zhu",
+    "url": "https://github.com/zhuyansen"
+  },
+  "metadata": {
+    "description": "New-term radar for AI keywords: collection and keyword research skills that run the new-term-radar command line.",
+    "version": "0.2.1"
+  },
+  "plugins": [
+    {
+      "name": "new-term-radar",
+      "source": "./",
+      "description": "Three skills that find the names of new AI models, products and repositories as they surface, and size the search terms behind them with Google Ads volume and Google Trends."
+    }
+  ]
+}
