@@ -34,12 +34,16 @@ RETRY_PAUSE = 10
 MIN_URLS = 3
 TOP = 25
 DEFAULT_PAUSE = 3
-_LOCALE = r"^(https?://[^/]+)/[a-z]{2}(?:-[A-Za-z]{2,4})?(?=/)"
-_LOC = re.compile(r"<loc>\s*([^<\s]+)\s*</loc>")
+# A leading path segment that is a language code (/de/, /zh-CN/, /pt_BR/). Only real codes: a slug
+# like /ai-blog/ or /rf-detr/ is a page, not a locale.
+LANGS = ("en|zh|tw|ja|ko|fr|de|es|pt|it|ru|ar|tr|vi|th|id|nl|pl|sv|da|fi|no|nb|cs|hu|ro|uk|el|he|hi|ms|fa|bn|"
+         "ur|ta|te|sk|bg|hr|sr|sl|lt|lv|et|ca|tl|fil|sw")
+_LOCALE = rf"^(https?://[^/]+)/(?:{LANGS})(?:[-_][A-Za-z]{{2,4}})?(?=/)"
+_LOC = re.compile(r"<loc>\s*(?:<!\[CDATA\[)?\s*([^<\s\]]+)\s*(?:\]\]>)?\s*</loc>")
 
 
 def fetch(url: str) -> str:
-    req = urllib.request.Request(url.replace("&amp;", "&"), headers={"User-Agent": UA})
+    req = urllib.request.Request(url.replace("&amp;", "&"), headers={"User-Agent": UA, "Accept-Encoding": "gzip"})
     for attempt in range(RETRIES):
         try:
             with urllib.request.urlopen(req, timeout=TIMEOUT) as res:
@@ -87,11 +91,13 @@ def diff(cfg: dict, state: Path) -> dict:
         except Exception as exc:  # noqa: BLE001 — one site down must not stop the others
             report[site] = {"error": str(exc)[:120]}
             continue
+        if not now:     # blocked, empty or a format the reader misses: say so rather than wait forever
+            report[site] = {"error": "no URLs read"}
+            continue
         new = sorted(now - old) if old is not None else []
         report[site] = {"urls": len(now), "new": len(new), "first_run": old is None, "sample": new[:8]}
         recent += [(u, slug_text(u)) for u in new]
         baseline += [(u, slug_text(u)) for u in (old or set())]
-        if now:   # an empty answer (blocked, broken) keeps the old snapshot
-            snap.save(path, sorted(now))
+        snap.save(path, sorted(now))
     ratio = len(recent) / max(len(baseline), 1)
     return {"sites": report, "terms": surges(by_source(recent), by_source(baseline), ratio, MIN_URLS, TOP)}

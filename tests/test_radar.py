@@ -255,6 +255,21 @@ def test_hf_base_name_strips_quantisation_and_size():
     assert base_name("Lightricks/LTX-2.5") == "ltx 2.5"
 
 
+def test_hf_reads_trending_models_and_spaces_and_merges_a_model_with_its_demo(tmp_path, monkeypatch):
+    import radar.sources as src
+    lists = {"models": [{"id": "old/Old-Model"}], "spaces": [{"id": "old/old-demo"}]}
+    monkeypatch.setattr(src, "_trending", lambda what: lists[what])
+    first = src.hf_new({}, tmp_path)
+    assert first["first_run"] and first["terms"] == [] and first["models"] == 1 and first["spaces"] == 1
+    lists["models"] = [{"id": "krea/Krea-2", "pipeline_tag": "text-to-image", "likes": 900}, {"id": "old/Old-Model"}]
+    lists["spaces"] = [{"id": "krea/Krea-2-demo", "sdk": "gradio", "likes": 300}, {"id": "lighton/LightOnOCR-3-webgpu", "sdk": "static"}]
+    later = src.hf_new({}, tmp_path)
+    terms = {r["term"]: r for r in later["terms"]}
+    assert set(terms) == {"krea 2", "lightonocr 3"} and not later["first_run"]
+    assert terms["krea 2"]["examples"] == ["krea/Krea-2 (text-to-image, ♥900)", "krea/Krea-2-demo (gradio, ♥300)"]
+    assert terms["lightonocr 3"]["note"] == "Hugging Face Spaces: new at #2"
+
+
 # --- ② breakout: one repo taking off --------------------------------------------------
 
 def _repo(name, stars, days_old):
@@ -723,7 +738,7 @@ def test_decisions():
 def _fake_usecase_network(monkeypatch):
     rise = _daily([1] * 85 + [9, 53, 40, 59, 100])
     flat = _daily([20] * 90)
-    monkeypatch.setattr(usecases, "evidence", lambda names, repos, today: (
+    monkeypatch.setattr(usecases, "evidence", lambda names, repos, today, texts=None: (
         {n: {"posts": [{"text": "check if any image is AI generated", "likes": 900, "by": "a", "url": ""}], "readme": "", "repo": ""} for n in names}, 3000))
     monkeypatch.setattr(usecases, "propose", lambda model, name, ev: [
         {"phrase": "ai image detector", "evidence": "check if any image is AI generated", "brand": False},
@@ -827,7 +842,7 @@ def test_with_a_key_related_queries_join_the_table_and_other_names_become_leads(
     assert uc["cosearch"] == [{"term": "gpt image 2.5", "with": "synthid detector"}]
     assert uc["tails"] == {"synthid detector": ["synthid detector online"]} and uc["cost_micros"] == 106200
     text = "\n".join(report.keyword_table(cfg, uc))
-    assert "| **ai photo detector** 🔎 |" in text and "gpt image 2.5 (with synthid detector)" in text and "synthid detector online" in text
+    assert "| **ai photo detector** 🖼 🔎 |" in text and "gpt image 2.5 (with synthid detector)" in text and "synthid detector online" in text
     assert "incomplete today" not in text
     assert {"term": "gpt image 2.5", "kinds": ["cosearch"]}.items() <= report.usecase_leads(uc)[-1].items()
 
@@ -962,7 +977,7 @@ def test_a_failed_post_search_costs_one_name_its_posts_not_the_step(monkeypatch)
 def test_keywords_on_request_reads_every_name_now_and_leaves_the_record_alone(cfg, tmp_path, monkeypatch):
     _fake_usecase_network(monkeypatch)
     uc, text = cli.keyword_table(cfg, tmp_path, ["SynthID Detector ", "synthid detector", ""], {})
-    assert uc["names"] == ["synthid detector"] and "| **ai image detector** |" in text
+    assert uc["names"] == ["synthid detector"] and "| **ai image detector** 🖼 |" in text
     again, _ = cli.keyword_table(cfg, tmp_path, ["synthid detector"], {})
     assert again["names"] == ["synthid detector"]                 # asked again, read again
     assert not (tmp_path / "usecases.json.gz").exists()           # the daily run's read-twice record is untouched
@@ -995,7 +1010,7 @@ def test_mcp_tools_answer_and_never_print(cfg, tmp_path, monkeypatch, capsys):
 
     _fake_usecase_network(monkeypatch)
     out = mcp_server._keyword_table(["synthid detector"], {})
-    assert "| **ai image detector** |" in out["table_markdown"] and out["incomplete"] is False and out["cost_usd"] == 0.1
+    assert "| **ai image detector** 🖼 |" in out["table_markdown"] and out["incomplete"] is False and out["cost_usd"] == 0.1
 
     monkeypatch.setattr(cli.sources, "x_new", lambda cfg, state: {"posts": 400, "cost_micros": 3000, "terms": [
         {"term": "qwen3.9", "recent": 2, "note": "X: 2 accounts", "examples": ["@a: Qwen3.9 is out"]}]})
@@ -1061,3 +1076,221 @@ def test_the_mcp_command_says_what_is_missing(monkeypatch, capsys):
     monkeypatch.setattr(builtins, "__import__", without_mcp)
     assert cli.main(["mcp"]) == 1
     assert "new-term-radar[mcp]" in capsys.readouterr().err
+
+
+# --- page one: can a new site get in? ------------------------------------------------------------
+
+from radar import competition  # noqa: E402
+
+
+def _serp(results, ads=False):
+    items = [{"type": "ai_overview"}] + [{"type": "organic", "domain": d, "url": u, "title": t, "rank_group": i + 1}
+                                         for i, (d, u, t) in enumerate(results)]
+    return {"tasks": [{"result": [{"items": items + ([{"type": "paid"}] if ads else [])}]}]}
+
+
+def test_page_one_verdicts():
+    assert competition.verdict(3, None) == "open" and competition.verdict(0, 15) == "open"
+    assert competition.verdict(0, 55) == "crowded" and competition.verdict(None, None) == "crowded"
+    assert competition.verdict(1, 30) == "mixed" and competition.verdict(None, 30) == "mixed"
+    assert competition.page_kind("youtube.com", "https://youtube.com/watch?v=1", "x") == "video"
+    assert competition.page_kind("headshotpro.com", "https://headshotpro.com/", "Free AI Headshot Generator") == "tool"
+    assert competition.page_kind("headshots.com", "https://headshots.com/best", "16 Best AI Headshot Generators") == "list"
+
+
+def test_a_crowded_rising_term_is_watched_not_prioritized(cfg, tmp_path, monkeypatch):
+    cfg["competition"]["max_rows"] = 8
+    monkeypatch.setenv("GOANYAPI_API_KEY", "k")
+    strong = [("canva.com", "https://canva.com/ai", "Canva AI"), ("adobe.com", "https://adobe.com/x", "Adobe")]
+    weak = [("tiny1.ai", "https://tiny1.ai/", "Free Tool"), ("tiny2.ai", "https://tiny2.ai/", "Free Tool"),
+            ("tiny3.ai", "https://tiny3.ai/x", "A guide")]
+    pages = {"crowded term": _serp(strong, ads=True), "open term": _serp(strong + weak)}
+
+    def call(calls):
+        c = calls[0]
+        if c["call_id"] == "serp":
+            return {"serp": pages[c["arguments"]["body"][0]["keyword"]]}, 2000
+        items = [{"keyword": k, "keyword_properties": {"keyword_difficulty": 60 if k == "crowded term" else 25}}
+                 for k in c["arguments"]["body"][0]["keywords"]]
+        return {"kd": {"tasks": [{"result": [{"items": items}]}]}}, 12000
+    monkeypatch.setattr(competition.aisa, "call", call)
+    rated = {"canva.com": 94, "adobe.com": 96, "tiny1.ai": 8, "tiny2.ai": 12, "tiny3.ai": 21}
+    asked = []
+
+    def goany(path, **p):
+        if path == "dr":
+            asked.append(p["domain"])
+            return {"domain_rating": rated[p["domain"]]}, 2000
+        if path == "google-intitle":
+            return {"intitleCount": 19500}, 4000
+        return {"domains": ["paid.example"] if p["keyword"] == "crowded term" else [], "advertisers": []}, 4000
+    monkeypatch.setattr(competition.goanyapi, "call", goany)
+    rows = [{"phrase": "crowded term", "decision": "prioritize"}, {"phrase": "open term", "decision": "prioritize"},
+            {"phrase": "faded", "decision": "skip"}]
+    cost, errors = competition.assess(rows, cfg, tmp_path)
+    crowded, opened, faded = rows
+    assert crowded["decision"] == "watch" and crowded["demoted"] and crowded["competition"]["ads"]
+    assert crowded["competition"]["verdict"] == "crowded" and crowded["competition"]["weak"] == 0
+    assert opened["decision"] == "prioritize" and opened["competition"]["weak"] == 3
+    assert opened["competition"]["weakest"] == {"domain": "tiny1.ai", "dr": 8, "position": 3, "url": "https://tiny1.ai/"}
+    assert "competition" not in faded and errors == [] and cost == 2 * 2000 + 12000 + 5 * 2000 + 2 * (4000 + 4000)
+    assert crowded["competition"]["built"] == 19500 and crowded["competition"]["paid"] == ["paid.example"]
+    competition.assess([{"phrase": "open term", "decision": "watch"}], cfg, tmp_path)
+    assert len(asked) == 5                                    # ratings are kept 30 days, not bought again
+    uc = {"names": ["x"], "rows": [dict(r, kind="generic", names=["x"], brand=False, new=True, now="rising", peak_day="2026-10-10",
+                                       evidence="") for r in rows[:2]],
+          "proposed": 2, "relevant": 2, "kept": 2, "benchmark": "gpts", "volume_month": "2026-08", "related": True}
+    text = "\n".join(report.keyword_table(cfg, uc))
+    assert "crowded · 0 weak · KD 60 · ads · 19,500 pages built · 1 advertisers" in text and "watch ↓" in text
+    assert "open · 3 weak · KD 25 · 19,500 pages built |" in text and "advertising on it: paid.example" in text
+    assert "tiny1.ai (rated 8) at #3" in text and "Page one: open = three or more" in text
+    assert "**crowded term**: no easy slot, even the weakest, canva.com, is rated 94 (#1)" in text
+
+
+
+# --- ⑥ revenue: products people pay for ----------------------------------------------------------
+
+from radar import revenue  # noqa: E402
+
+
+def _product(slug, name, usd, growth=None, website="https://x.example", stealth=False, about="Turns photos into headshots."):
+    return {"slug": slug, "name": name, "website": website, "description": about, "category": "ai",
+            "revenue": {"last30Days": usd * 100}, "growth30d": growth, "stealthMode": stealth}
+
+
+def test_revenue_reports_growth_then_a_product_that_left_zero(cfg, tmp_path, monkeypatch):
+    monkeypatch.setenv("TRUSTMRR_API_KEY", "k")
+    monkeypatch.setattr(revenue.time, "sleep", lambda s: None)
+    pages = {"growth-desc": [_product("headshot", "HeadshotKit", 4200, 4500.0, "https://headshotkit.ai"),
+                             _product("anon", "Anonymous startup", 9000, 2.0, website="", stealth=True),
+                             _product("gpt", "Talent Tech Global Limited", 840, 1.6, "https://gptproto.com")],
+             "listed-desc": [_product("baby", "AI Baby Generator", 0, None, "https://aibabygenerator.ai")]}
+    monkeypatch.setattr(revenue, "fetch", lambda sort, page, c: pages[sort] if page == 1 else [])
+    first = revenue.products(cfg, tmp_path)
+    assert first["first_run"] and [r["term"] for r in first["products"]] == ["headshotkit", "gptproto"]
+    assert first["products"][0]["growth_text"] == "up from near $0" and first["products"][1]["growth_text"] == "+160%"
+    assert first["terms"][0]["about"] == ("https://headshotkit.ai", "Turns photos into headshots.")
+    pages["growth-desc"] = []
+    pages["listed-desc"] = [_product("baby", "AI Baby Generator", 900, None, "https://aibabygenerator.ai")]
+    later = revenue.products(cfg, tmp_path)
+    assert [r["term"] for r in later["products"]] == ["ai baby generator"] and later["products"][0]["from_zero"]
+    assert later["terms"][0]["note"] == "TrustMRR: from $0 to $900 in 30 days"
+    text = "\n".join(report._revenue_lines(later, cfg))
+    assert "**$0 last time, earning now**" in text and "forbid republishing" in text
+
+
+def test_revenue_without_a_key_says_it_is_off(cfg, tmp_path, monkeypatch):
+    monkeypatch.delenv("TRUSTMRR_API_KEY", raising=False)
+    rv = revenue.products(cfg, tmp_path)
+    assert rv == {"skipped": True, "no_key": True}
+    assert "No TRUSTMRR_API_KEY" in "\n".join(report._revenue_lines(rv, cfg))
+
+
+
+# --- what a lead makes, and one-click chances ----------------------------------------------------
+
+from radar import opportunity  # noqa: E402
+
+
+def _posts(*texts_likes):
+    return [{"text": x, "likes": n} for x, n in texts_likes]
+
+
+def test_format_reads_the_name_first_then_what_most_posts_say():
+    assert opportunity.fmt({"term": "veo 3.1", "posts": []}) == "video"
+    assert opportunity.fmt({"term": "elevenlabs v4", "posts": _posts(
+        ("give your characters a voice", 1500), ("tts that whispers", 500), ("audio and sound effects", 400),
+        ("made a video with it", 300))}) == "voice"                           # voice 3, video 1
+    assert opportunity.fmt({"term": "claude opus 5.5", "posts": _posts(
+        ("it made an animation", 100000), ("great at code", 6000), ("writes well", 6000), ("fast", 3000),
+        ("cheap", 3000), ("smart", 1000), ("solid", 900), ("ok", 800))}) == "text"   # one post in eight is not a format
+    assert opportunity.fmt({"term": "headshotkit", "about": ("https://headshotkit.ai", "AI headshots from selfies")}) == "image"
+
+
+def test_one_click_needs_a_tutorial_people_shared():
+    assert opportunity.one_click(_posts(("here's how to build this with Opus + Blender + Unreal", 1699))) == "tutorial"
+    assert opportunity.one_click(_posts(("here's how I did it", 120))) is None              # nobody shared it
+    assert opportunity.one_click(_posts(("8 denoising steps, open weights", 5301))) is None   # an announcement
+    assert opportunity.one_click(_posts(("everyone is making these figurines", 4200))) == "trend"
+
+
+def test_leads_carry_format_marks_and_the_legend(cfg, monkeypatch):
+    monkeypatch.setattr(report.judge, "score", lambda rows, model: {"judged": len(rows)})
+    blocks = {"x": {"terms": [{"term": "clipforge", "recent": 2, "note": "X", "examples": ["@a: clipforge animates any photo"],
+                               "posts": [{"text": "here's how: step 1 upload, step 2 prompt", "likes": 2400}]}]}}
+    lead, _ = report.leads(cfg, blocks)
+    assert lead[0]["format"] == "video" and lead[0]["one_click"] == "tutorial"
+    assert report._marks(lead[0]) == " 🎬 ⚡"
+
+
+
+# --- ⑦ asks, pains and tutorial comments ---------------------------------------------------------
+
+from radar import asks, pains  # noqa: E402
+
+
+def _reddit_post(pid, title, score=12, sub="VideoEditors"):
+    return {"id": pid, "title": title, "text": "", "score": score, "comments": 3, "subreddit": sub,
+            "url": f"https://www.reddit.com/r/{sub}/{pid}", "created": 0}
+
+
+def test_asks_turns_reddit_requests_into_sized_jobs(cfg, tmp_path, monkeypatch):
+    cfg["asks"]["patterns"] = ['"is there an ai tool"', '"how do i automate"']
+    posts = {'"is there an ai tool"': [_reddit_post("a", "Is there an AI tool to add b-roll automatically?", 45),
+                                       _reddit_post("b", "Any AI that turns slides into notes?", 35, "college"),
+                                       _reddit_post("c", "Rate my setup", 1)],
+             '"how do i automate"': [_reddit_post("a", "Is there an AI tool to add b-roll automatically?", 45)]}
+    monkeypatch.setattr(asks.social, "reddit", lambda q, **k: (posts[q], 1880))
+    monkeypatch.setattr(asks.aisa, "chat", lambda model, system, user: json.dumps(
+        [{"i": i, "kind": "request", "job": job, "ai": True} for i, job in enumerate(
+            ["add b roll automatically", "convert slides to notes"])]))
+    monkeypatch.setattr(asks.usecases, "volumes", lambda phrases, loc: (
+        {"add b roll automatically": {"volume": 880}, "convert slides to notes": {"volume": 10}}, 90000))
+    first = asks.asks(cfg, tmp_path)
+    assert first["read"] == 2 and first["asks"] == 2 and first["unsized"] == 1          # "rate my setup" scored under the floor
+    assert [r["phrase"] for r in first["rows"]] == ["add b roll automatically"] and first["cost_micros"] == 2 * 1880 + 90000
+    assert first["terms"][0]["note"] == "Reddit: asked 1× (r/VideoEditors)"
+    assert [q["phrase"] for q in first["quiet"]] == ["convert slides to notes"]           # asked, too few searches yet
+    text = "\n".join(report._asks_lines(first, cfg))
+    assert "| **add b roll automatically** | 1 (45) | r/VideoEditors | 880 |" in text and "do not republish" in text
+    assert "| convert slides to notes | 1 (35) | r/college |" in text and "ideas rather than keywords" in text
+    again = asks.asks(cfg, tmp_path)
+    assert again["rows"][0]["again"] and again["terms"] == []                            # reported once
+
+
+def test_pains_groups_reviews_posts_and_comments_into_gaps(cfg, monkeypatch):
+    monkeypatch.setenv("GOANYAPI_API_KEY", "k")
+    ext = "a" * 32
+
+    def serp(q, gl="US"):
+        if q.startswith("site:chromewebstore"):
+            return [{"url": f"https://chromewebstore.google.com/detail/headshot-ai/{ext}", "title": "x", "rank": 1}], 2000
+        return [{"url": "https://www.youtube.com/watch?v=abcdefghijk", "title": "tutorial", "rank": 1}], 2000
+    monkeypatch.setattr(pains.goanyapi, "serp", serp)
+    monkeypatch.setattr(pains.goanyapi, "chrome_reviews", lambda e, c="": (
+        [{"rating": 1, "text": "Needs a photo of your face, no way to upload a group shot", "date": "2026-10-13"},
+         {"rating": 5, "text": "Great!", "date": "2026-10-12"}], "", 3000))
+    monkeypatch.setattr(pains.social, "reddit", lambda q, **k: ([_reddit_post("r1", "Headshot apps all look plastic")], 1880))
+    monkeypatch.setattr(pains.social, "youtube_comments", lambda vid: ([{"text": "Is there a way to do this for a whole team at once?", "likes": 40},
+                                                                        {"text": "nice", "likes": 0}], 1000))
+    monkeypatch.setattr(pains.aisa, "chat", lambda model, system, user, max_tokens=2500: json.dumps([
+        {"gap": "No team or group headshots", "kind": "missing", "items": [0, 2], "phrase": "ai headshots for teams"},
+        {"gap": "Results look plastic", "kind": "quality", "items": [1]}]))
+    result = pains.run(cfg, "ai headshot")
+    assert result["by_source"] == {"chrome": 1, "reddit": 1, "youtube": 1}           # 5 stars, "nice" and repeats are left out
+    assert result["gaps"][0]["count"] == 2 and result["gaps"][0]["sources"] == ["chrome", "youtube"]
+    text = report.pains(result)
+    assert "| No team or group headshots | missing | 2 | ai headshots for teams |" in text and "Trustpilot" in text
+
+
+def test_tutorial_asks_only_for_leads_marked_one_click(cfg, monkeypatch):
+    cfg["tutorials"]["max_leads"] = 3
+    monkeypatch.setenv("GOANYAPI_API_KEY", "k")
+    monkeypatch.setattr(pains.goanyapi, "serp", lambda q, gl="US": ([{"url": "https://www.youtube.com/watch?v=abcdefghijk", "title": "t", "rank": 1}], 2000))
+    monkeypatch.setattr(pains.social, "youtube_comments", lambda vid: ([{"text": "Can someone make this one click? Too many steps", "likes": 12}], 1000))
+    monkeypatch.setattr(pains.aisa, "chat", lambda model, system, user, max_tokens=2500: json.dumps(
+        [{"gap": "Too many manual steps", "kind": "wants a tool", "items": [0], "phrase": "one click blender export"}]))
+    out = pains.tutorial_asks(cfg, [{"term": "opus blender game", "one_click": "tutorial"}, {"term": "plain", "one_click": None}])
+    assert [x["term"] for x in out["leads"]] == ["opus blender game"] and out["cost_micros"] == 2000 + 1000
+    text = "\n".join(report._tutorial_lines(out))
+    assert "Too many manual steps (wants a tool, 1) → one click blender export" in text

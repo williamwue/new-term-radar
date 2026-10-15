@@ -55,7 +55,7 @@ def call(path: str, **params) -> tuple[dict, int]:
         data = body.get("data") or {}
         if body.get("code") != "ok":
             raise GoAnyError(str(body.get("message") or body)[:160])
-        return data, int(data.get("costCredits") or 0) * MICROS_PER_CREDIT
+        return data, int(data.get("costCredits") or data.get("creditsUsed") or 0) * MICROS_PER_CREDIT
     raise GoAnyError(error[:160])
 
 
@@ -77,3 +77,33 @@ def daily_series(term: str, geo: str = "US", window: str = "today 1-m") -> tuple
         except (KeyError, IndexError, TypeError, ValueError):
             continue
     return out, cost
+
+
+def serp(q: str, gl: str = "US") -> tuple[list[dict], int]:
+    """Google's organic results for a query (2 credits): [{"url", "title", "rank"}]."""
+    data, cost = call("serp", q=q, gl=gl, hl="en")
+    return [{"url": o.get("link") or "", "title": o.get("title") or "", "rank": o.get("rank")}
+            for o in (data.get("result") or {}).get("organic") or []], cost
+
+
+def intitle(term: str, window: str = "m") -> tuple[int | None, int]:
+    """How many pages Google holds with `term` in the title, from the last week or month (4 credits)."""
+    data, cost = call("google-intitle", intitle=term, gl="us", qdr=window)
+    count = data.get("intitleCount")
+    return (int(count) if isinstance(count, (int, float)) or str(count).isdigit() else None), cost
+
+
+def advertisers(keyword: str) -> tuple[list[str], int]:
+    """Domains and advertisers that run Google ads for a keyword (Ads transparency, 4 credits)."""
+    data, cost = call("transparency", keyword=keyword)
+    names = [str(a.get("name") or a) if isinstance(a, dict) else str(a) for a in data.get("advertisers") or []]
+    return list(dict.fromkeys([*(data.get("domains") or []), *names])), cost
+
+
+def chrome_reviews(extension_id: str, cursor: str = "") -> tuple[list[dict], str, int]:
+    """One page of a Chrome Web Store extension's reviews (3 credits): ([{"rating", "text", "date"}], next cursor, cost)."""
+    params = {"extensionId": extension_id, **({"cursor": cursor} if cursor else {})}
+    data, cost = call("chrome-web-store-reviews", **params)
+    rows = [{"rating": c.get("rating"), "text": " ".join(str(c.get("content") or "").split()), "date": str(c.get("createdAt") or "")[:10]}
+            for c in data.get("comments") or []]
+    return rows, (data.get("nextCursor") or "") if data.get("hasMore") else "", cost
