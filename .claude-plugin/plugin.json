@@ -1,6 +1,6 @@
 {
   "name": "new-term-radar",
-  "version": "0.2.1",
+  "version": "0.4.0",
   "description": "Three skills that find the names of new AI models, products and repositories as they surface, and size the search terms behind them with Google Ads volume and Google Trends.",
   "author": {
     "name": "Jason Zhu",

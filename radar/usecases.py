@@ -52,7 +52,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
 from pathlib import Path
 
-from . import UA, aisa, goanyapi, review, snap
+from . import UA, aisa, competition, goanyapi, review, snap
 
 POSTS_KEPT = 12
 POST_CHARS = 400
@@ -112,7 +112,8 @@ def _readme(repo: str) -> str:
         return ""
 
 
-def evidence(names: list[str], repos: dict[str, str], today: date) -> tuple[dict[str, dict], int]:
+def evidence(names: list[str], repos: dict[str, str], today: date,
+             texts: dict[str, tuple[str, str]] | None = None) -> tuple[dict[str, dict], int]:
     """{name: {"posts": [...], "readme": str, "error": str}} and the cost in micro-USD.
 
     One request per name: the router runs a batch's calls one after another, a post
@@ -135,6 +136,8 @@ def evidence(names: list[str], repos: dict[str, str], today: date) -> tuple[dict
                          "by": (t.get("author") or {}).get("userName") or "?", "url": t.get("url", "")} for t in tweets),
                        key=lambda p: -p["likes"])[:POSTS_KEPT]
         out[n] = {"posts": posts, "readme": _readme(repos[n]) if repos.get(n) else "", "repo": repos.get(n, ""), "error": error}
+        if not out[n]["readme"] and (texts or {}).get(n):     # a product's own listing stands in for a README
+            out[n]["repo"], out[n]["readme"] = texts[n]
     return out, cost
 
 
@@ -467,7 +470,7 @@ def measure(rows: list[dict], series: dict[str, dict], min_daily: int, today: da
 
 
 def run(cfg: dict, state: Path, names: list[str], repos: dict[str, str], today: date | None = None,
-        on_request: bool = False) -> dict:
+        on_request: bool = False, texts: dict[str, tuple[str, str]] | None = None) -> dict:
     """names: today's named leads, most important first. repos: {name: "owner/repo"} where known.
     `on_request` is for names a person asked about (the `keywords` command, the MCP tool): all of
     them are read now, up to ASKED_MAX, and the read-twice record is left alone."""
@@ -478,7 +481,7 @@ def run(cfg: dict, state: Path, names: list[str], repos: dict[str, str], today: 
     todo = list(dict.fromkeys(names))[:ASKED_MAX] if on_request else due(names, seen, today, c["per_day"], c["recheck_days"])
     if not todo:
         return {"names": [], "rows": [], "proposed": 0, "cost_micros": 0}
-    ev, cost = evidence(todo, repos, today)
+    ev, cost = evidence(todo, repos, today, texts)
     proposed: dict[str, dict] = {}
     asked, c0 = 0, 0
     tails: dict[str, list[str]] = {}
@@ -514,6 +517,7 @@ def run(cfg: dict, state: Path, names: list[str], repos: dict[str, str], today: 
     series, c3 = fetch_series([r["phrase"] for r in rows], bench, today)
     local, c4, local_errors = country_series(rows, c) if goanyapi.key() and c.get("country_trends", True) else ({}, 0, [])
     daily = measure(rows, series, c["min_daily"], today, local)
+    c5, comp_errors = competition.assess(rows, cfg, state) if cfg.get("competition", {}).get("max_rows") else (0, [])
     order = {"prioritize": 0, "watch": 1, "skip": 2}
     rows.sort(key=lambda r: (order[r["decision"]], -(r.get("per_day") or 0), -(r.get("volume") or 0)))
     if not on_request:
@@ -528,10 +532,10 @@ def run(cfg: dict, state: Path, names: list[str], repos: dict[str, str], today: 
             "posts_error": "; ".join(f"{n}: {e['error']}" for n, e in ev.items() if e.get("error")),
             "related": use_related, "tails": {n: v for n, v in tails.items() if v}, "cosearch": cosearch,
             "related_errors": related_errors, "geo": c["related_geo"], "country_errors": local_errors,
-            "cost_micros": cost + c0 + c2 + c3 + c4}
+            "competition_errors": comp_errors, "cost_micros": cost + c0 + c2 + c3 + c4 + c5}
 
 
-READ_KINDS = {"x", "hf", "breakout", "newsite"}
+READ_KINDS = {"x", "hf", "breakout", "newsite", "revenue"}
 READ_MIN = 0.8
 
 
@@ -551,4 +555,4 @@ def names_to_read(leads_today: list[dict], recent_sources: list[dict]) -> list[s
 
 def degraded(uc: dict) -> bool:
     """A source failed during this run, so the table holds less than it would have."""
-    return bool(uc.get("posts_error") or uc.get("related_errors") or uc.get("country_errors"))
+    return bool(uc.get("posts_error") or uc.get("related_errors") or uc.get("country_errors") or uc.get("competition_errors"))

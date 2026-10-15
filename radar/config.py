@@ -24,6 +24,17 @@ DEFAULTS = {
     "usecases": {"per_day": 5, "model": "claude-sonnet-4-6", "min_volume": 50, "trends_max": 10, "recheck_days": 3,
                  "location_code": 2840, "benchmark": "gpts", "min_daily": 300, "related": True, "related_geo": "US",
                  "country_trends": True, "country_min_volume": 1000, "country_max": 8},
+    "competition": {"max_rows": 8, "weak_dr": 30, "location_code": 2840},
+    "revenue": {"weekday": 0, "pages_growth": 3, "pages_new": 3, "min_revenue_usd": 500, "category": "", "max_leads": 10},
+    "asks": {"weekday": 0, "time": "week", "min_score": 2, "model": "gpt-4.1-mini", "min_volume": 50, "max_leads": 12,
+             "location_code": 2840, "patterns": [
+                 '"is there an ai tool"', '"is there an ai that"', '"is there a tool that"', '"any ai tool for"',
+                 '"looking for an ai tool"', '"i wish there was a tool"', '"is there a way to automatically"',
+                 '"how do i automate"', '"tool that can automatically"', '"recommend an ai"', '"best ai tool for"',
+                 '"ai tool that can"']},
+    "pains": {"model": "gpt-4.1-mini", "extensions": 5, "review_pages": 2, "max_stars": 3, "reddit_time": "year", "videos": 3,
+              "reddit_queries": ["{k} alternative", "{k} frustrating", '"{k}" "doesn\'t work"', "{k} wish there was"]},
+    "tutorials": {"max_leads": 3, "videos": 3, "model": "gpt-4.1-mini"},
     "gsc": {},
 }
 

@@ -22,18 +22,22 @@ One example it was built around: [Niko1221/Strata](https://github.com/Niko1221/S
 
 ## What it reads
 
-![How the radar works: four signals, a name judge, the keyword table, a daily report and a 14-day check; used from the command line, three Agent Skills or an MCP server](docs/radar.en.gif)
+![How the radar works: six signals, a name judge, the keyword table with its page-one check, a daily report and a 14-day check; used from the command line, three Agent Skills, an MCP server or the pains command. What 0.3 and 0.4 added is purple and tagged NEW](docs/radar.en.gif)
+
+Purple, tagged NEW: what 0.3 and 0.4 added (⑥ revenue, ⑦ Reddit asks, the page-one check, the format and ⚡ marks, the `pains` command).
 
 | Signal | What it catches | Needs | Cost |
 |---|---|---|---|
 | ① X | Names the accounts in your list used for the first time in 60 days | AIsa key, or a local posts file | $0.003 per account per run; nothing from a file |
-| ① Hugging Face | Models new to the trending top 50; quantised copies grouped under the base name | nothing | free |
+| ① Hugging Face | Models and Spaces (the demos people try) new to the trending top 50; quantised copies and a model's own demo grouped under the base name | nothing | free |
 | ② GitHub breakout | A repo under 14 days old averaging 200+ stars a day, or +400 since yesterday; adds the search variants people use ("niko strata") | nothing (a GitHub token raises the rate limit) | free |
-| ③ Sitemaps | Words that several new URLs on a site share and its older URLs rarely carried | the sitemaps you list | free |
+| ③ Sitemaps | Words that several new URLs on a site share and its older URLs rarely carried. The example config watches eight AI tool directories (toolify, aixploria, ai-bot.cn, opentools, dang.ai, clipfly, aitoptools, futurepedia) and four MCP and skill directories | the sitemaps you list | free |
 | ③ New sites | Domains registered and first indexed in the last 90 days that already rank for 20+ keywords | AIsa key | about $0.13 per query, weekly |
+| ⑦ Asks | What people ask for on Reddit ("is there an AI tool that…", twelve phrasings): a model keeps the requests and complaints an AI tool could answer and writes each job as people would search it; jobs with searches get the page-one check | AIsa key | about $0.12 a week |
+| ⑥ Revenue | Products people pay for, from TrustMRR's verified revenue: the fastest growing ($500+ in 30 days) and the newest listings; one at $0 last time and earning now is called out first. Its own description goes to the keyword table as evidence | TrustMRR key | free, 6 requests, weekly |
 | ④ Search Console | Queries your site got impressions for, for the first time (fresh data) | your own Google token | free |
 | ⑤ Review | Each lead checked in Google Trends 14 days later, against its own baseline; hit rate and days ahead per signal | AIsa key | $0.0012 per search variant |
-| Keyword table | For the day's new names: the generic search terms behind them (what people do with the new thing), each sized and given a decision | AIsa key; [GoAnyAPI](https://goanyapi.com) key optional | about $0.15 a day for 5 names, $0.22 with GoAnyAPI |
+| Keyword table | For the day's new names: the generic search terms behind them (what people do with the new thing), each sized, checked for room on page one, and given a decision | AIsa key; [GoAnyAPI](https://goanyapi.com) key optional | about $0.18 a day for 5 names, $0.30 with GoAnyAPI |
 | Name judge | A small model scores every term: the name of one specific thing, or a common word? | AIsa key | a fraction of a cent per run |
 
 Prices are what AIsa charged in October 2026. With the example config (35 X accounts read three times a day, the keyword table for 5 names a day) a month costs about $15: $10 for the X reads, $5 for the keyword table. Read fewer accounts, or read them once a day, and it drops in proportion.
@@ -43,14 +47,14 @@ Prices are what AIsa charged in October 2026. With the example config (35 X acco
 A name is half of what you need. "SynthID Detector" has a short life as a keyword and belongs to Google; the job it does, "ai image detector", is what people keep searching, and nobody owns it. Each day the radar reads the new names once more and writes one table with both:
 
 ```
-| Keyword | Type | Behind | New? | Est. searches/day | Started rising | Peak vs gpts | Peak day | Last 7 days vs the 7 before | Now | Decision |
-| **photocraft** | name | — | yes | 12747 | 2026-10-05 | 97 vs 3.1 | 2026-10-09 | — | still rising | **prioritize** |
-| **claude haiku 5.5** | name | — | yes | 1863 | 2026-10-07 | 100 vs 23.7 | 2026-10-08 | ×6.0 | still rising | **prioritize** |
-| **ai image detector** | generic | synthid detector | no | 2537 | — | 87 vs 31.6 | 2026-10-04 | ×1.2 | flat | watch |
-| **photoshop alternative** ⚠ | generic | photocraft | no | 244 | — | 61 vs 61.7 | 2026-10-08 | ×1.8 | flat | skip |
+| Keyword | Type | Behind | New? | Est. searches/day | Started rising | Peak vs gpts | Peak day | Last 7 days vs the 7 before | Now | Page one | Decision |
+| **photocraft** 🖼 | name | — | yes | 12747 | 2026-10-05 | 97 vs 3.1 | 2026-10-09 | — | still rising | — | **prioritize** |
+| **claude haiku 5.5** | name | — | yes | 1863 | 2026-10-07 | 100 vs 23.7 | 2026-10-08 | ×6.0 | still rising | — | **prioritize** |
+| **ai image detector** 🖼 | generic | synthid detector | no | 2537 | — | 87 vs 31.6 | 2026-10-04 | ×1.2 | flat | — | watch |
+| **photoshop alternative** ⚠ | generic | photocraft | no | 244 | — | 61 vs 61.7 | 2026-10-08 | ×1.8 | flat | — | skip |
 ```
 
-(a real run, 2026-10-12, shortened)
+(a real run, 2026-10-12, shortened; the Page one column came later, see below)
 
 How it is made (`radar/usecases.py`):
 
@@ -60,10 +64,13 @@ How it is made (`radar/usecases.py`):
 3. **Screen**: a second call scores how well the name answers each phrase, marks brands, and spots the names of other things; the loosely related ones are dropped. For Claude Haiku 5.5 it dropped all six proposed ("ai coding assistant", "github copilot alternative"); for SynthID Detector it kept all five.
 4. **Volume**: Google Ads monthly searches for the rest, one batch call. Phrases under `min_volume` are dropped; most are.
 5. **Trends**, twice per row: the term alone gives the shape (new or not, the day it started rising, the peak, the last week against the week before, what it is doing now); the term beside a benchmark keyword (`gpts` by default) gives the size.
+6. **Page one**, for the rows that would be acted on (eight at most): Google's first page (about $0.002 a keyword), the rating of each site on it (GoAnyAPI, $0.002 a site, kept 30 days) and the keyword difficulty ($0.012 a call). With a GoAnyAPI key also who already builds for the term and who pays for it: the pages Google holds with it in the title from the last month (`pages built`) and the domains running Google ads on it (`advertisers`, from Ads transparency), $0.008 a row. `open` = three or more of the ten results sit on sites rated under 30, or difficulty under 20; `crowded` = none does and difficulty is 40 or more; `mixed` in between. Under the table it names the weakest site on page one, where a new page can get in, and what kinds of pages hold it (tools, lists, articles, videos, forums). Ads on the page mean someone pays for that click.
 
 Searches a day are estimates. A generic term's come from its own Google Ads volume, moved to today along its own Trends curve. The benchmark is then sized from those terms, and a name, which has no volume data yet, is sized against the benchmark.
 
-Decision: **prioritize** = rose in the last 30 days, still up, at least `min_daily` searches a day. **watch** = rose but smaller, too early to read, or flat with steady demand of that size. **skip** = fading, or flat and small.
+Decision: **prioritize** = rose in the last 30 days, still up, at least `min_daily` searches a day. **watch** = rose but smaller, too early to read, or flat with steady demand of that size. **skip** = fading, or flat and small. A `prioritize` whose page one is `crowded` becomes `watch ↓`: still rising, but page one belongs to strong sites. In a name's first week page one is still forming (news, the maker's own pages); the second reading three days later is the one to trust.
+
+Marks: 🎬 video, 🎙 voice, 🖼 image says what the thing makes, the usual order of what visitors pay for (video > voice > image > text); leads of equal standing are sorted by it. ⚡ = a post with 1,000 or more likes walks through a manual workflow or rides a trend: a one-click tool nobody has built yet. Both come from keyword rules over the lead's own words and posts; on six known names (Nano Banana, Veo 3.1, Seedance 2.5, Claude Opus 5.5, ElevenLabs v4, Qwen Image 2.1) the format came out right for all six and ⚡ fired once, on a widely shared Opus 5.5 + Blender + Unreal walkthrough. Read the posts before acting on a mark.
 
 Each name is read twice, the day it appears and three days later, because on announcement day the posts are announcements and no use shows yet. The generic terms are kept as leads and reviewed after 14 days like the names.
 
@@ -91,6 +98,34 @@ The table is still written, but it gets thinner, and it says which part is missi
 A thin table is not a quiet day. Read the lines under it before you conclude that nothing moved.
 
 Set `"usecases": {"per_day": 0}` or pass `--skip usecases` to turn it off.
+
+### ⑥ Revenue: what people already pay for
+
+A product that makes money proves the demand behind it. With `TRUSTMRR_API_KEY` set (from TrustMRR's developer dashboard), the radar reads once a week (`revenue.weekday`, Monday by default) the 30 fastest-growing products with at least `min_revenue_usd` ($500) in the last 30 days and the 30 newest listings, and keeps what it saw. The newest listings mostly earn next to nothing yet; they are read to record where they start, so a product at $0 last time that earns past the floor now is called out first. Hidden listings ("Anonymous startup") are left out, and a company's legal name gives way to its site's name ("Talent Tech Global Limited" is read as gptproto). Each product's own description goes to the keyword table as evidence, so the table reads the job people pay for, not only the brand. Growth above 1,000% reads "up from near $0": on the first run most of the fastest growers had started from almost nothing.
+
+TrustMRR's API terms forbid republishing its data and building public SEO pages from it. Use the leads for your own research; do not publish the list.
+
+### ⑦ Asks: demand said out loud
+
+Once a week the radar searches Reddit for a dozen ways people ask for a tool ("is there an AI tool", "I wish there was a tool", "how do I automate", in `asks.patterns`), keeps the posts of the last week with a score of 2 or more, and has a small model sort them: a request, a complaint, a shared solution, or other. For requests and complaints an AI tool could answer it writes the job the way a person would search it ("add b roll automatically", "convert slides to notes"). Jobs with at least 50 searches a month are listed with their posts and get the page-one check; each becomes a lead. Most asks are too specific to have searches yet: the first real week, 84 posts held 43 asks and only two had 50 searches a month ("best ai tool for research", from a 1,034-point r/PhD thread, and "best ai tool for coding"). So the best-scored of the others are listed too, as ideas rather than keywords. A month of posts read in a trial held a request for "an AI tool to convert PowerPoint lecture slides into notes", the same job a tool-site course uses as its worked example.
+
+Posts are for your own research: quote them, do not republish them.
+
+### ⚡ What tutorial viewers ask for
+
+For up to three leads a day marked ⚡ (a widely shared walkthrough of a manual workflow), the radar finds the top tutorial videos for the lead (GoAnyAPI), reads their comments (AIsa, $0.001 a page) and has the model pull out what viewers ask for: the steps they find too hard, the "can this be done in one click". That list is the one-click tool. It needs a GoAnyAPI key to find the videos.
+
+## Pain points: `python -m radar pains "ai headshot"`
+
+What people complain about for a kind of tool, grouped into the gaps a new tool can fill:
+
+- low-star Chrome Web Store reviews (1 to 3 stars) of the extensions Google shows for the keyword, or of the ones you name with `--extension ID` (GoAnyAPI: 2 credits to find them, 3 a page of reviews);
+- Reddit posts that complain about the job or its tools ("{keyword} alternative", "{keyword} frustrating", ...; AIsa);
+- comments under the top tutorial videos for the keyword (AIsa).
+
+A model groups them into gaps (missing, too hard, quality, price, wants a tool), each with a count, an example and the phrase someone with that problem would search. About $0.05 a keyword. Counts are of what was read, not of the market.
+
+What it cannot read: App Store, Google Play and Trustpilot reviews (DataForSEO serves them as tasks to post and fetch later, and AIsa runs synchronous calls only); There's An AI For That's request board (a Cloudflare challenge in front of every page; getting past it would be getting past their bot protection, so the radar does not); Facebook groups (Meta closed the Groups API in April 2024, and its research library is open to approved academic and nonprofit researchers only).
 
 ## One key, and an optional second
 
